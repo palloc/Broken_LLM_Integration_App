@@ -1,0 +1,8 @@
+# ハンズオン実行時の生成物（コミットしない）
+.runtime/
+**/inspect_result.json
+**/__pycache__/
+*.pyc
+
+# 受講者の秘密情報（.env.example は配布する）
+.env

@@ -1,0 +1,38 @@
+# Broken Chatbot ハンズオン用の依存関係。
+#
+#   pip install -r course/requirements.txt
+#
+# 既存バックエンドの依存（langchain / openai / nemoguardrails 等）を取り込みつつ、
+# ネイティブ起動と --reload に必要な追加パッケージを入れる。
+
+-r ../chatapp/backend/requirements.txt
+
+# --reload 対応の uvicorn（watchfiles を含む）。
+uvicorn[standard]==0.23.2
+watchfiles
+
+# .env から OPENAI_API_KEY 等を読み込む。
+python-dotenv
+
+# ── 依存解決の高速化（重要）─────────────────────────────────────────────
+# chatapp/backend/requirements.txt 内の一部パッケージ（openai / langchain-openai /
+# langchain-aws / langchain-google-genai / boto3 など）はバージョン未固定のため、
+# pip が膨大な組合せを試して「pip is still looking at multiple versions ...」と
+# 長時間バックトラッキングすることがある。
+# 検証済みの組合せを明示ピンして解決を一意化し、インストールを高速化する。
+openai==1.109.1
+langchain-openai==0.3.19
+langchain-aws==0.2.15
+langchain-google-genai==2.1.5
+langchain-community==0.3.0
+langchain-core==0.3.63
+langchain-text-splitters==0.3.8
+boto3==1.43.34
+botocore==1.43.34
+google-ai-generativelanguage==0.6.18
+google-api-core==2.31.0
+google-auth==2.55.0
+tiktoken==0.13.0
+httpx==0.28.1
+requests==2.34.2
+beautifulsoup4==4.15.0

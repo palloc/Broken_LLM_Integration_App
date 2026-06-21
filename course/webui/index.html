@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Broken Chatbot — Handson</title>
+<style>
+  :root {
+    --header-bar-height: 44px;
+  }
+  * { box-sizing: border-box; }
+  body { background-color: #87ceeb; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
+
+  .headerBar {
+    height: var(--header-bar-height);
+    background-color: #333; color: white;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; font-size: 18px;
+    position: fixed; top: 0; left: 0; width: 100%; z-index: 1000;
+  }
+  .headerBar .badge { font-size: 12px; color: #ffd28a; border: 1px solid #ffd28a; border-radius: 4px; padding: 1px 6px; margin-left: 8px; }
+  .headerRight { font-size: 13px; color: #ccc; }
+
+  .chatLog {
+    margin: calc(var(--header-bar-height) + 14px) 10px 10px 10px;
+    background-color: #ffffff; padding: 10px;
+    border: 1px solid #ccc; border-radius: 4px; overflow-y: auto;
+    height: calc(100vh - var(--header-bar-height) - 120px);
+  }
+
+  .bubble-container { width: 100%; margin: 0 auto 10px; display: flex; align-items: flex-start; }
+  .user-container { justify-content: flex-end; }
+  .bot-container  { justify-content: flex-start; }
+
+  .icon { width: 40px; height: 40px; border-radius: 50%; margin: 5px; flex: 0 0 auto; }
+
+  .user-bubble, .bot-bubble {
+    position: relative; border-radius: 5px; padding: 10px;
+    width: fit-content; max-width: 70%; white-space: pre-wrap; word-wrap: break-word;
+  }
+  .user-bubble { background-color: #e6f7ff; }
+  .bot-bubble  { background-color: #fff3e0; }
+  .user-bubble:before {
+    content: ""; position: absolute; width: 0; height: 0; border-style: solid;
+    border-width: 10px 10px 10px 0; border-color: transparent #e6f7ff transparent transparent; right: -10px; top: 0;
+  }
+  .bot-bubble:before {
+    content: ""; position: absolute; width: 0; height: 0; border-style: solid;
+    border-width: 10px 0 10px 10px; border-color: transparent transparent transparent #fff3e0; left: -10px; top: 0;
+  }
+
+  .inputArea {
+    margin: 0 10px 10px 10px; display: grid; grid-template-columns: 10fr 3fr 1fr; gap: 10px;
+  }
+  .inputArea input[type="text"] { padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; }
+  .inputArea select { padding: 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 13px; background:#fff; }
+  .inputArea button {
+    padding: 10px; border: none; border-radius: 4px; background-color: #008CBA;
+    color: white; font-size: 16px; cursor: pointer;
+  }
+  .inputArea button:hover { background-color: #0056b3; }
+  .inputArea button:disabled { background-color: #aaa; cursor: not-allowed; }
+
+  .dots { display: inline-block; }
+  .dots span { animation: blink 1.2s infinite both; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+</style>
+</head>
+<body>
+  <div class="headerBar">
+    <span>Broken Chatbot <span class="badge">Handson</span></span>
+    <span class="headerRight" id="modeLabel"></span>
+  </div>
+
+  <div class="chatLog" id="chatLog"></div>
+
+  <div class="inputArea">
+    <input type="text" id="msg" placeholder="Send a message" autocomplete="off" />
+    <select id="mode">
+      <optgroup label="Prompt Leaking">
+        <option value="prompt-leaking-lv1">Leak Lv.1 (no guard)</option>
+        <option value="prompt-leaking-lv2">Leak Lv.2 (input/output regex filter)</option>
+        <option value="prompt-leaking-lv3">Leak Lv.3 (prompt hardener)</option>
+      </optgroup>
+      <optgroup label="P2SQL Injection">
+        <option value="p2sql-injection-lv1">SQLi Lv.1 (no guard)</option>
+        <option value="p2sql-injection-lv2">SQLi Lv.2 (input/output regex filter)</option>
+        <option value="p2sql-injection-lv3">SQLi Lv.3 (defensive system prompt)</option>
+      </optgroup>
+      <optgroup label="LLM4Shell">
+        <option value="llm4shell-lv1">LLM4Shell Lv.1 (no guard)</option>
+        <option value="llm4shell-lv2">LLM4Shell Lv.2 (input/output regex filter)</option>
+        <option value="llm4shell-lv3">LLM4Shell Lv.3 (prompt hardener)</option>
+      </optgroup>
+    </select>
+    <button id="send">Send</button>
+  </div>
+
+<script>
+  const chatLog = document.getElementById("chatLog");
+  const msgInput = document.getElementById("msg");
+  const modeSel  = document.getElementById("mode");
+  const sendBtn  = document.getElementById("send");
+  const modeLabel = document.getElementById("modeLabel");
+
+  // 同一オリジン・相対パスで呼ぶ（Colab proxy / jupyter-server-proxy 配下でも動作）。
+  const BOT_ICON = "assets/robot_icon_40.png";
+  const USER_ICON = "assets/user_icon_40.png";
+
+  function syncLabel() { modeLabel.textContent = modeSel.options[modeSel.selectedIndex].text; }
+  modeSel.addEventListener("change", syncLabel);
+  syncLabel();
+
+  function addBubble(from, contentNode) {
+    const container = document.createElement("div");
+    container.className = `bubble-container ${from}-container`;
+    const icon = document.createElement("img");
+    icon.className = "icon";
+    icon.src = from === "user" ? USER_ICON : BOT_ICON;
+    icon.alt = `${from}_icon`;
+    const bubble = document.createElement("div");
+    bubble.className = `${from}-bubble`;
+    bubble.appendChild(contentNode);
+    if (from === "user") { container.appendChild(bubble); container.appendChild(icon); }
+    else { container.appendChild(icon); container.appendChild(bubble); }
+    chatLog.appendChild(container);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return bubble;
+  }
+
+  function loadingNode() {
+    const span = document.createElement("span");
+    span.className = "dots";
+    span.innerHTML = "<span>.</span><span>.</span><span>.</span>";
+    return span;
+  }
+
+  async function send() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+    addBubble("user", document.createTextNode(text));
+    msgInput.value = "";
+    sendBtn.disabled = true;
+
+    const botBubble = addBubble("bot", loadingNode());
+    try {
+      const res = await fetch(modeSel.value, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      botBubble.textContent = (data && typeof data.text === "string") ? data.text : JSON.stringify(data);
+    } catch (e) {
+      botBubble.textContent = "通信エラー: " + e;
+    } finally {
+      sendBtn.disabled = false;
+      chatLog.scrollTop = chatLog.scrollHeight;
+      msgInput.focus();
+    }
+  }
+
+  sendBtn.addEventListener("click", send);
+  msgInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  msgInput.focus();
+</script>
+</body>
+</html>
