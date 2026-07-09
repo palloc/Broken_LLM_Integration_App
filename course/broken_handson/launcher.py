@@ -7,8 +7,8 @@
     proc = launcher.start()         # uvicorn を --reload 付きで起動
     launcher.show()                 # Colab は iframe、それ以外は URL を表示
 
-防御ファイル（blacklists.py / filters.py / llm_prompt_templates.py）を編集すると
-`--reload` により自動でサーバへ反映される。停止は ``launcher.stop(proc)``。
+防御ファイルは `student_workspace/edit_targets/` を編集し、
+`launcher.sync_edit_targets()` で反映する。停止は ``launcher.stop(proc)``。
 """
 
 from __future__ import annotations
@@ -19,10 +19,12 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
-from .config import prepare_env, PATHS
+from .config import EDITABLE_FILES, PATHS, prepare_env
 
 DEFAULT_PORT = 8000
+_ACTIVE_PORT = DEFAULT_PORT
 
 
 # ── 環境検出 ─────────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ def configure_llm(interactive: bool = True) -> None:
     `OLLAMA_MODEL_NAME` を設定しておく。
     """
     prepare_env()  # ここで .env を読み込む
+    ensure_edit_targets()
     provider = os.environ.get("LLM_PROVIDER", "openai").lower()
 
     if provider == "ollama":
@@ -97,11 +100,17 @@ def configure_llm(interactive: bool = True) -> None:
 
 # ── DB 投入 ──────────────────────────────────────────────────────────────────
 def seed(verbose: bool = True) -> str:
+    ensure_edit_targets()
+    sync_edit_targets()
     from .seed import seed as _seed
     return _seed(verbose=verbose)
 
 
 # ── サーバ起動 ───────────────────────────────────────────────────────────────
+def active_port() -> int:
+    return _ACTIVE_PORT
+
+
 def _child_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
@@ -110,15 +119,57 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+def _editable_pairs() -> list[tuple[Path, Path, Path]]:
+    pairs: list[tuple[Path, Path, Path]] = []
+    for filename in EDITABLE_FILES:
+        pairs.append((
+            PATHS.app_dir / filename,
+            PATHS.edit_targets_dir / filename,
+            PATHS.baseline_dir / filename,
+        ))
+    return pairs
+
+
+def ensure_edit_targets() -> None:
+    prepare_env()
+    for app_file, edit_file, baseline_file in _editable_pairs():
+        if not app_file.is_file():
+            raise FileNotFoundError(f"編集対象の元ファイルが見つかりません: {app_file}")
+        if not baseline_file.exists():
+            baseline_file.write_text(app_file.read_text(encoding="utf-8"), encoding="utf-8")
+        if not edit_file.exists():
+            edit_file.write_text(baseline_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def sync_edit_targets() -> None:
+    ensure_edit_targets()
+    for app_file, edit_file, _baseline_file in _editable_pairs():
+        app_file.write_text(edit_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def reset_edit_targets() -> None:
+    ensure_edit_targets()
+    for _app_file, edit_file, baseline_file in _editable_pairs():
+        edit_file.write_text(baseline_file.read_text(encoding="utf-8"), encoding="utf-8")
+    sync_edit_targets()
+
+
 def start(port: int = DEFAULT_PORT, reload: bool = True, wait: bool = True) -> subprocess.Popen:
     """uvicorn を別プロセスで起動する。プロセスハンドルを返す。"""
+    global _ACTIVE_PORT
     prepare_env()
+    sync_edit_targets()
+    _ACTIVE_PORT = port
     cmd = [
         sys.executable, "-m", "uvicorn", "broken_handson.server:app",
         "--host", "0.0.0.0", "--port", str(port),
     ]
     if reload:
-        cmd += ["--reload", "--reload-dir", str(PATHS.app_dir)]
+        cmd += [
+            "--reload",
+            "--reload-dir", str(PATHS.app_dir),
+            "--reload-dir", str(PATHS.edit_targets_dir),
+        ]
 
     print("[server] launching:", " ".join(cmd))
     proc = subprocess.Popen(
@@ -163,12 +214,19 @@ def show(port: int = DEFAULT_PORT, height: int = 720) -> None:
         return
 
     local = f"http://localhost:{port}/"
-    proxy = f"（JupyterHub の場合）/proxy/{port}/ または /user/<name>/proxy/{port}/"
+    service_prefix = os.environ.get("JUPYTERHUB_SERVICE_PREFIX")
+    proxy_path = f"/proxy/{port}/"
+    if service_prefix:
+        proxy_path = f"{service_prefix}proxy/{port}/"
+        if not proxy_path.startswith("/"):
+            proxy_path = f"/{proxy_path}"
+    proxy = f"（JupyterHub の場合）{proxy_path}"
     print("Web UI:")
     print("  ローカル:", local)
     print("  JupyterHub:", proxy)
+    iframe_src = local if not service_prefix else proxy_path
     try:
         from IPython.display import IFrame, display  # type: ignore
-        display(IFrame(src=local, width="100%", height=height))
+        display(IFrame(src=iframe_src, width="100%", height=height))
     except Exception:
         pass

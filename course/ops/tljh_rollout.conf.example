@@ -1,0 +1,15 @@
+# SSH / リモート接続
+REMOTE_HOST="ubuntu@203.0.113.10"
+SSH_KEY_PATH="$HOME/.ssh/your-key.pem"
+
+# リモート配置先
+REMOTE_STAGING_DIR="/tmp/broken-src"
+REMOTE_MASTER_DIR="/opt/broken-src"
+REMOTE_SKEL_DIR="/etc/skel/student_workspace"
+
+# 既存ユーザー配布の段階設定
+# 例: 先行配布ユーザーが jupyter-teamA-* なら /home/jupyter-teamA-*
+# 先行配布を使わない場合は空文字にする: PILOT_HOME_GLOB=""
+PILOT_HOME_GLOB="/home/jupyter-teamA-*"
+# true のとき先行配布後に全ユーザーへも展開する
+ROLLOUT_TO_ALL="true"

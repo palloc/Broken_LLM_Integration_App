@@ -122,6 +122,8 @@ celerybeat.pid
 # Environments
 chatapp/backend/.env
 chatapp/frontend/.env
+student_workspace/.env
+student_workspace/.runtime/
 .venv
 env/
 venv/
