@@ -131,7 +131,7 @@ sudo tljh-config reload hub
 
 ### 4-0. 講師向け「一発更新」コマンド（推奨）
 
-ローカル（このリポジトリ）から、**教材更新 → `/etc/skel` 更新 → 既存ユーザー段階配布**までを
+ローカル（このリポジトリ）から、**教材更新 → `/etc/skel` 更新 → 開始ディレクトリ固定 → 既存ユーザー段階配布 → 受講生UX整理**までを
 1 コマンドで実行できます。
 
 ```bash
@@ -145,6 +145,10 @@ cp course/ops/tljh_rollout.conf.example course/ops/tljh_rollout.conf
 - `SSH_KEY_PATH="$HOME/.ssh/your-key.pem"` … SSH 秘密鍵
 - `PILOT_HOME_GLOB="/home/jupyter-teamA-*"` … 先行配布対象
 - `ROLLOUT_TO_ALL="true"` … `true` なら先行配布後に全体配布
+- `CONFIGURE_TLJH_START_DIR="true"` … JupyterLab の開始ディレクトリ固定を有効化
+- `TLJH_NOTEBOOK_DIR="~/student_workspace/notebooks"` … 開始ディレクトリ
+- `ENABLE_HOME_UX="true"` … ホームREADME生成と legacy ディレクトリ整理を有効化
+- `RENAMED_LEGACY_DIR_NAME="no_edit_Broken_LLM_Integration_App"` … 退避後の名称
 
 実行:
 
@@ -154,6 +158,7 @@ bash course/ops/one_shot_update_tljh.sh
 
 > 先行配布だけで止めたい場合は、`ROLLOUT_TO_ALL="false"` にします。
 > `PILOT_HOME_GLOB` に一致するユーザーが 0 件でも、処理は継続して全体配布へ進みます。
+> `ENABLE_HOME_UX="true"` の場合、`course/ops/templates/README_FIRST.md` テンプレートを受講生ホームへ配置し、既存の `Broken_LLM_Integration_App` は `no_edit_*` 名へ退避します。
 
 ---
 
@@ -390,6 +395,8 @@ DNS の A レコードを `<ELASTIC_IP>` に向け、SG で 443 を許可して�
 - **既存ユーザーへ再配布したい**: `distribute_student_workspace.sh`（必要なら `--overwrite`）を実行。
 - **受講者が教材を壊した**: `reset_student_workspace_for_user.sh --user <name>` で notebooks/edit_targets を復旧。
 - **講師向けに一発更新したい**: `one_shot_update_tljh.sh` を使用し、`tljh_rollout.conf` の `REMOTE_HOST` / `SSH_KEY_PATH` / `PILOT_HOME_GLOB` を設定。
+- **受講者が起動後に迷う**: `configure_tljh_start_dir.sh` で `~/student_workspace/notebooks` を開始ディレクトリに固定。
+- **`Broken_LLM_Integration_App` を見せたくない**: `improve_student_home_ux.sh` で `no_edit_Broken_LLM_Integration_App` に退避し、`README_FIRST.md` を再生成。
 - **コスト管理**: 演習時間外はインスタンスを停止（Elastic IP は維持されます）。
 
 ---

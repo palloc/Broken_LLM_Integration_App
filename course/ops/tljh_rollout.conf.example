@@ -13,3 +13,14 @@ REMOTE_SKEL_DIR="/etc/skel/student_workspace"
 PILOT_HOME_GLOB="/home/jupyter-teamA-*"
 # true のとき先行配布後に全ユーザーへも展開する
 ROLLOUT_TO_ALL="true"
+
+# 受講生UX改善（推奨）
+# JupyterLab 起動時の開始ディレクトリを固定
+CONFIGURE_TLJH_START_DIR="true"
+TLJH_NOTEBOOK_DIR="~/student_workspace/notebooks"
+
+# 受講生ホームの案内と見え方を整理
+ENABLE_HOME_UX="true"
+WORKSPACE_DIR_NAME="student_workspace"
+LEGACY_DIR_NAME="Broken_LLM_Integration_App"
+RENAMED_LEGACY_DIR_NAME="no_edit_Broken_LLM_Integration_App"
