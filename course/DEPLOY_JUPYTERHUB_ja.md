@@ -16,7 +16,7 @@
 | 規模 / インスタンス | 〜5 名同時 / `t3.large`（2 vCPU / 8 GB）|
 | OS | **Ubuntu 24.04 LTS**（Python 3.12 が標準搭載）|
 | 認証 | FirstUseAuthenticator（TLJH 既定・初回ログイン時に各自パスワード設定。自己登録のため `create_users true` と `allow_all true` を設定）|
-| LLM | 共通 OpenAI API キー 1 つをシステム全体に注入（受講者は設定不要）|
+| LLM | 共通 Bedrock Mantle API キー 1 つをシステム全体に注入（受講者は設定不要）|
 | 教材配布 | ローカルのこのリポジトリを EC2 へ rsync → `/etc/skel` に配置 → 新規ユーザー作成時に各ホームへ自動コピー（GitHub 非経由）|
 | 演習用 Python | TLJH とは別に **Python 3.12 の専用カーネル env** を作成（依存衝突回避）|
 
@@ -180,7 +180,7 @@ rsync -avz --delete \
   ./ ubuntu@<ELASTIC_IP>:/tmp/broken-src/
 ```
 
-> `.env`（API キー）は配布しません。キーは [手順 6](#6-共通-openai-api-キーをシステムへ注入) で
+> `.env`（API キー）は配布しません。キーは [手順 6](#6-共通-bedrock-mantle-api-キーをシステムへ注入) で
 > システム側に注入します。
 
 ### 4-2. EC2 側でマスター配置（`/opt`）と配布元（`/etc/skel`）に展開
@@ -263,7 +263,7 @@ print('FULL IMPORT OK')
 
 ---
 
-## 6. 共通 OpenAI API キーをシステムへ注入
+## 6. 共通 Bedrock Mantle API キーをシステムへ注入
 
 単一ユーザーサーバ（とその子プロセス・カーネル）に環境変数を渡すため、TLJH の
 config スニペットを追加します。
@@ -273,9 +273,10 @@ sudo mkdir -p /opt/tljh/config/jupyterhub_config.d
 sudo tee /opt/tljh/config/jupyterhub_config.d/10-broken-env.py >/dev/null <<'PY'
 # 受講者の単一ユーザーサーバへ環境変数を注入する。
 c.Spawner.environment = {
-    "LLM_PROVIDER": "openai",
-    "OPENAI_API_KEY": "sk-xxxxxxxxxxxxxxxxxxxxxxxx",  # ← 実際のキーに置換
-    "OPENAI_MODEL_NAME": "gpt-4o-mini",
+  "LLM_PROVIDER": "bedrock",
+  "BEDROCK_API_KEY": "xxxxxxxxxxxxxxxxxxxxxxxx",  # ← 実際のキーに置換
+  "BEDROCK_BASE_URL": "https://bedrock-mantle.us-east-2.api.aws/v1",
+  "BEDROCK_MODEL_NAME": "google.gemma-3-27b-it",
 }
 PY
 
@@ -287,9 +288,10 @@ sudo tljh-config reload hub
 - これにより `launcher.configure_llm()` は何も尋ねずにキーを解決します（`.env` 不要）。
 - Ollama を使う場合は代わりに
   `LLM_PROVIDER=ollama` / `OLLAMA_BASE_URL` / `OLLAMA_MODEL_NAME` を設定します。
+- OpenAI を使う場合は `LLM_PROVIDER=openai` / `OPENAI_API_KEY` / `OPENAI_MODEL_NAME` を設定します。
 
 > ⚠️ 共通キーは JupyterHub の環境変数注入でのみ渡し、受講者向けファイルには保存しません。
-> 使用後はキーをローテーションし、OpenAI 側の Usage limits で上限を設定してください。
+> 使用後はキーをローテーションし、Bedrock 側の利用量・制限を確認してください。
 
 ---
 
@@ -347,10 +349,10 @@ sudo bash /opt/broken-src/course/ops/reset_student_workspace_for_user.sh --user 
 - **公開禁止**: 意図的に脆弱な教材です。SG で 80/443 を受講者 IP / VPN に限定し、全公開しない。
 - **LLM4Shell は実際に RCE** します。TLJH は各受講者を別 Unix ユーザーで動かすため影響は
   原則そのユーザーのホームに限定されますが、次に留意:
-  - 共通 OpenAI キーは各ユーザー env から読めます（前述）。
+  - 共通 Bedrock キーは各ユーザー env から読めます（前述）。
   - uvicorn は **`127.0.0.1`（ループバック）に bind** するため、同一ホスト内の他受講者からは
     到達できません（proxy = 同一ユーザーのサーバ経由のみ）。SG で外部公開もされません。
-- **使用後**: インスタンスを停止/終了し、OpenAI キーをローテーションしてコストと露出を最小化。
+- **使用後**: インスタンスを停止/終了し、Bedrock API キーをローテーションしてコストと露出を最小化。
 - DB は SQLite（`student_workspace/.runtime/`・各ユーザー個別）でサンプルデータのみを含みます。
 
 ---
@@ -368,6 +370,31 @@ sudo tljh-config reload proxy
 
 DNS の A レコードを `<ELASTIC_IP>` に向け、SG で 443 を許可しておきます。
 
+ただし、接続元を受講者 IP に限定していると、認証局からの接続も遮断され、
+この自動発行はタイムアウトすることがあります。証明書発行のために教材を全公開せず、
+その場合は DNS-01 認証を使用してください。EC2 の標準公開 DNS 名
+（`*.compute.amazonaws.com`）は、今回 Let's Encrypt に発行ポリシーで拒否されました。
+
+### DNS 認証での設定記録（2026-09-27）
+
+- 接続先: `https://93nakzia.jpsec.ai/`。A レコードは `3.131.128.117`。
+- Certbot は教材・Hub とは独立した `/opt/broken-acme/` に導入。
+- DNS TXT レコードを手動で登録し、Let's Encrypt 証明書を発行済み。
+- 証明書の有効期限: **2026-12-26 07:40:55 UTC**。
+- TLJH の `https.tls.cert` は `/etc/letsencrypt/live/93nakzia.jpsec.ai/fullchain.pem`、
+  `https.tls.key` は同ディレクトリの `privkey.pem` を参照。
+- 接続に失敗していた `https.letsencrypt` 設定は解除し、接続元制限は維持。
+- 変更前の設定は `/var/backups/broken-https-20260927/config.yaml` に退避。
+
+**自動更新は未設定です。** 手動 DNS 認証では、期限前に管理者が新しい TXT 値を登録して
+更新する必要があります。2026年11月末までを目安に更新作業を行ってください。
+保存した TXT 値を残すだけでは次回更新できません。完全自動化には DNS API 連携または
+認証用 DNS の委任が必要です。更新成功後は `sudo tljh-config reload proxy` で反映します。
+期限は `sudo /opt/broken-acme/bin/certbot certificates` で確認できます。
+
+新ドメインで証明書検証付きの HTTPS 接続が HTTP 200 を返すことを確認済みです。
+Chrome でも最初のコードセルが数秒以内に実行できることを受講者側で確認しました。
+
 ---
 
 ## 11. 運用・トラブルシュート
@@ -380,13 +407,19 @@ DNS の A レコードを `<ELASTIC_IP>` に向け、SG で 443 を許可して�
   `false` の典型サインです。[手順 2-1](#2-1-受講者の自己登録自動アカウント作成を許可する重要) の
   `create_users true` と `allow_all true` を**両方**設定し、`sudo tljh-config reload` を実行。
 - **カーネルが見えない**: 手順 5 の `ipykernel install` を再実行し、Hub をリロード。
+- **最初のセルが長時間 `[*]` のまま**: Chrome の Console で
+  `ERR_CERT_AUTHORITY_INVALID` と WebSocket 接続失敗が出ていないか確認。
+  今回はサーバー起動約6.2秒、カーネル準備約0.78秒、セル実行約0.009秒でしたが、
+  証明書エラーでブラウザーからの接続が遮断されていました。
+  旧 IP のタブを閉じ、証明書に対応する `https://93nakzia.jpsec.ai/` からログインし直します。
+  ブラウザーの証明書検証を無効にしないでください。
 - **`ModuleNotFoundError`（例: `No module named 'pydantic_settings'`）**: 多くは
   **カーネルの取り違え**が原因です。ノートブックで `import sys; print(sys.executable)` を実行し、
   `/opt/broken/venv/bin/python` でなければ、右上のカーネルを **「Python 3.12 (Broken Chatbot)」**
   に切り替えてください（再配布後のノートブックは既定でこのカーネルを選びます）。
   カーネルが正しいのに不足する場合は、[手順 5-1](#5-1-依存の取りこぼしを検証する推奨) の検証を実行し、
   `sudo /opt/broken/venv/bin/pip install -r /opt/broken-src/course/requirements.txt` で入れ直してください。
-- **`OPENAI_API_KEY` エラー**: 手順 6 のキー値とファイル権限、`reload hub` を確認。
+- **`BEDROCK_API_KEY` エラー**: 手順 6 のキー値とファイル権限、`reload hub` を確認。
 - **UI が出ない**: `launcher.show()` の出力 URL（`/user/<name>/proxy/<port>/`）を直接開く。
   `jupyter-server-proxy` が user 環境に入っているか（手順 3）を確認。
 - **`launcher.start()` が起動しない**: カーネルが「Python 3.12 (Broken Chatbot)」か確認。

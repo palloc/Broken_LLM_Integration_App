@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -21,10 +22,14 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .config import EDITABLE_FILES, PATHS, prepare_env
+from .config import EDITABLE_FILES, PATHS, edit_targets_revision, prepare_env
 
 DEFAULT_PORT = 8000
 _ACTIVE_PORT = DEFAULT_PORT
+_ACTIVE_PROCESS: subprocess.Popen | None = None
+_ACTIVE_RELOAD = False
+DEFAULT_BEDROCK_BASE_URL = "https://bedrock-mantle.us-east-2.api.aws/v1"
+DEFAULT_BEDROCK_MODEL = "google.gemma-3-27b-it"
 
 
 # ── 環境検出 ─────────────────────────────────────────────────────────────────
@@ -49,20 +54,33 @@ def use_ollama(base_url: str, model: str) -> None:
     print(f"[llm] provider=ollama model={model} base_url={base_url}")
 
 
+def use_bedrock(
+    api_key: str,
+    model: str = DEFAULT_BEDROCK_MODEL,
+    base_url: str = DEFAULT_BEDROCK_BASE_URL,
+) -> None:
+    os.environ["LLM_PROVIDER"] = "bedrock"
+    os.environ["BEDROCK_API_KEY"] = api_key
+    os.environ["BEDROCK_MODEL_NAME"] = model
+    os.environ["BEDROCK_BASE_URL"] = base_url
+    print(f"[llm] provider=bedrock model={model} base_url={base_url}")
+
+
 def configure_llm(interactive: bool = True) -> None:
     """LLM 設定を解決する。優先順位:
 
       1. `.env`（course/.env 等）／既存の環境変数
-      2. Colab の「シークレット」（OPENAI_API_KEY）
-      3. `getpass` による対話入力（interactive=True のとき）
+    2. Colab の「シークレット」（プロバイダに対応する API キー）
+    3. `getpass` による対話入力（interactive=True のとき）
 
-    `.env` に `OPENAI_API_KEY` を書いておけば、このセルは何も尋ねずに完了する。
-    Ollama を使う場合は `.env` に `LLM_PROVIDER=ollama` と `OLLAMA_BASE_URL` /
+    必要な環境変数が設定済みであれば、このセルは何も尋ねずに完了する。
+    Bedrock Mantle を使う場合は `LLM_PROVIDER=bedrock` と `BEDROCK_API_KEY` を設定しておく。
+    Ollama を使う場合は `LLM_PROVIDER=ollama` と `OLLAMA_BASE_URL` /
     `OLLAMA_MODEL_NAME` を設定しておく。
     """
     prepare_env()  # ここで .env を読み込む
     ensure_edit_targets()
-    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    provider = os.environ.get("LLM_PROVIDER", "bedrock").lower()
 
     if provider == "ollama":
         if os.environ.get("OLLAMA_BASE_URL") and os.environ.get("OLLAMA_MODEL_NAME"):
@@ -70,9 +88,43 @@ def configure_llm(interactive: bool = True) -> None:
                   f"base_url={os.environ['OLLAMA_BASE_URL']}（.env/環境変数）")
             return
         raise RuntimeError("LLM_PROVIDER=ollama ですが OLLAMA_BASE_URL/OLLAMA_MODEL_NAME が未設定です。"
-                           " course/.env に設定してください。")
+                           " 環境変数を確認してください。")
 
-    # provider == openai（既定）
+    if provider == "bedrock":
+        if os.environ.get("BEDROCK_API_KEY"):
+            model = os.environ.get("BEDROCK_MODEL_NAME") or DEFAULT_BEDROCK_MODEL
+            base_url = os.environ.get("BEDROCK_BASE_URL") or DEFAULT_BEDROCK_BASE_URL
+            print(f"[llm] provider=bedrock model={model} base_url={base_url}"
+                  "（.env/環境変数の BEDROCK_API_KEY を使用）")
+            return
+
+        try:
+            from google.colab import userdata  # type: ignore
+            key = userdata.get("BEDROCK_API_KEY")
+            if key:
+                use_bedrock(
+                    key,
+                    model=os.environ.get("BEDROCK_MODEL_NAME") or DEFAULT_BEDROCK_MODEL,
+                    base_url=os.environ.get("BEDROCK_BASE_URL") or DEFAULT_BEDROCK_BASE_URL,
+                )
+                return
+        except Exception:
+            pass
+
+        if interactive:
+            import getpass
+            key = getpass.getpass("BEDROCK_API_KEY: ")
+            use_bedrock(
+                key,
+                model=os.environ.get("BEDROCK_MODEL_NAME") or DEFAULT_BEDROCK_MODEL,
+                base_url=os.environ.get("BEDROCK_BASE_URL") or DEFAULT_BEDROCK_BASE_URL,
+            )
+            return
+
+        raise RuntimeError("BEDROCK_API_KEY が見つかりません。"
+                           "環境変数 / Colab シークレットの設定を確認してください。")
+
+    # provider == openai
     if os.environ.get("OPENAI_API_KEY"):
         model = os.environ.get("OPENAI_MODEL_NAME", "gpt-4o-mini")
         print(f"[llm] provider=openai model={model}（.env/環境変数の OPENAI_API_KEY を使用）")
@@ -94,8 +146,8 @@ def configure_llm(interactive: bool = True) -> None:
         use_openai(key, model=os.environ.get("OPENAI_MODEL_NAME", "gpt-4o-mini"))
         return
 
-    raise RuntimeError("OPENAI_API_KEY が見つかりません。course/.env に記載するか、"
-                       "環境変数 / Colab シークレットで設定してください。")
+    raise RuntimeError("OPENAI_API_KEY が見つかりません。"
+                       "環境変数 / Colab シークレットの設定を確認してください。")
 
 
 # ── DB 投入 ──────────────────────────────────────────────────────────────────
@@ -116,6 +168,10 @@ def _child_env() -> dict[str, str]:
     env["PYTHONPATH"] = os.pathsep.join(
         [str(PATHS.course_dir), str(PATHS.backend_dir), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
+    env.setdefault(
+        "PYTHONWARNINGS",
+        "ignore::DeprecationWarning,ignore::PendingDeprecationWarning",
+    )
     return env
 
 
@@ -145,6 +201,18 @@ def sync_edit_targets() -> None:
     ensure_edit_targets()
     for app_file, edit_file, _baseline_file in _editable_pairs():
         app_file.write_text(edit_file.read_text(encoding="utf-8"), encoding="utf-8")
+    if _ACTIVE_RELOAD and _ACTIVE_PROCESS is not None and _ACTIVE_PROCESS.poll() is None:
+        expected_revision = edit_targets_revision()
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{_ACTIVE_PORT}/handson/runtime", timeout=2) as response:
+                    if json.load(response).get("edit_targets_revision") == expected_revision:
+                        return
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.1)
+        raise RuntimeError("防御ファイルの再読み込みを確認できませんでした。サーバーを再起動してください。")
 
 
 def reset_edit_targets() -> None:
@@ -156,7 +224,7 @@ def reset_edit_targets() -> None:
 
 def start(port: int = DEFAULT_PORT, reload: bool = True, wait: bool = True) -> subprocess.Popen:
     """uvicorn を別プロセスで起動する。プロセスハンドルを返す。"""
-    global _ACTIVE_PORT
+    global _ACTIVE_PORT, _ACTIVE_PROCESS, _ACTIVE_RELOAD
     prepare_env()
     sync_edit_targets()
     _ACTIVE_PORT = port
@@ -177,6 +245,8 @@ def start(port: int = DEFAULT_PORT, reload: bool = True, wait: bool = True) -> s
         cwd=str(PATHS.backend_dir),   # secret.md / inspect_result.json をここに置く
         env=_child_env(),
     )
+    _ACTIVE_PROCESS = proc
+    _ACTIVE_RELOAD = reload
     if wait and not wait_until_up(port):
         print("[server] WARNING: health check timed out（ログを確認してください）")
     return proc
@@ -197,12 +267,16 @@ def wait_until_up(port: int = DEFAULT_PORT, timeout: float = 40.0) -> bool:
 
 
 def stop(proc: subprocess.Popen) -> None:
+    global _ACTIVE_PROCESS
     if proc and proc.poll() is None:
         proc.terminate()
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
+    if proc is _ACTIVE_PROCESS:
+        _ACTIVE_PROCESS = None
     print("[server] stopped")
 
 

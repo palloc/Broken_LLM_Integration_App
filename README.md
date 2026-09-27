@@ -108,6 +108,8 @@ If `OPENAI_BASE_URL` is not set, the default OpenAI API endpoint is used.
 By default, the OpenAI model is used.  
 If you want to use an LLM that runs on Ollama, set `LLM_PROVIDER=ollama` and set the Ollama server URL and model name in `OLLAMA_BASE_URL` and `OLLAMA_MODEL_NAME`.  
 
+SQL and PAL exercises accept Markdown-fenced SQL/Python model output. SQL responses include the executed `SQLQuery` and `SQLResult`; the prompt-defined `REFUSE` response is not executed as SQL. PAL imports remain available inside generated functions. These compatibility fixes do not sandbox execution or remove the intentional vulnerabilities. See [course validation](course/README.md) for the Bedrock Gemma notebook results.
+
 Please note that Ollama is not running within the Broken Chatbot container, so you must set the `OLLAMA_BASE_URL` to a URL that is accessible from the Broken Chatbot container (take sufficient care with security).
 
 ### Note: Using DeepKeep

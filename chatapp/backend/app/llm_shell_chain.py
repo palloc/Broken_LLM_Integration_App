@@ -1,7 +1,16 @@
+import re
+
 from langchain.chains import LLMChain
+from langchain_core.output_parsers import StrOutputParser
 from langchain_experimental.pal_chain.base import PALChain, PALValidation
 
 from .llm_models import create_chat_openai_model
+
+
+class PythonCodeOutputParser(StrOutputParser):
+    def parse(self, text: str) -> str:
+        fenced = re.fullmatch(r"```(?:python)?\s*\n(.*?)\n```", text.strip(), re.DOTALL)
+        return fenced.group(1) if fenced else text
 
 
 # Create PALChain using math prompt.
@@ -25,10 +34,12 @@ def create_pal_chain_native(prompt_template):
         llm = LLMChain(
             prompt=prompt_template,
             llm=create_chat_openai_model(),
+            output_parser=PythonCodeOutputParser(),
         )
         # Define PALChain.
         pal_chain = PALChain(
             llm_chain=llm,
+            python_globals={},
             allow_dangerous_code=True,
             code_validations=PALValidation(
                 allow_imports=True,

@@ -33,6 +33,6 @@ google-ai-generativelanguage==0.6.18
 google-api-core==2.31.0
 google-auth==2.55.0
 tiktoken==0.13.0
-httpx==0.28.1
+httpx==0.27.2
 requests==2.34.2
 beautifulsoup4==4.15.0

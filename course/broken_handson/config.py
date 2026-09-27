@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import shutil
 import sys
 from dataclasses import dataclass
@@ -74,6 +75,13 @@ def _resolve_paths() -> Paths:
 PATHS = _resolve_paths()
 
 
+def edit_targets_revision() -> str:
+    digest = hashlib.sha256()
+    for filename in EDITABLE_FILES:
+        digest.update((PATHS.app_dir / filename).read_bytes())
+    return digest.hexdigest()
+
+
 def load_env_files(verbose: bool = False) -> list[str]:
     """`.env` を探して環境変数へ読み込む（冪等・既存の環境変数は上書きしない）。
 
@@ -120,7 +128,7 @@ def prepare_env() -> Paths:
     if not p.backend_dir.exists():
         shutil.copytree(p.source_backend_dir, p.backend_dir)
 
-    # `.env`（OPENAI_API_KEY 等）を最初に読み込む。既存の環境変数は上書きしない。
+    # `.env`（LLM API キー等）を最初に読み込む。既存の環境変数は上書きしない。
     load_env_files()
 
     # `import app...`（既存パッケージ）と `import broken_handson...` の両方を可能にする。
@@ -143,8 +151,13 @@ def prepare_env() -> Paths:
         "DK_API_URL": "",
         "DK_FIREWALL_ID": "",
         "DK_TOKEN": "",
-        # LLM（既定は OpenAI。受講者が OPENAI_API_KEY を設定する）。
-        "LLM_PROVIDER": "openai",
+        # LLM（既定は Bedrock Mantle。`LLM_PROVIDER` で切り替え可能）。
+        "LLM_PROVIDER": "bedrock",
+        "SQL_CHAIN_VERBOSE": "false",
+        "BEDROCK_BASE_URL": "https://bedrock-mantle.us-east-2.api.aws/v1",
+        "BEDROCK_MODEL_NAME": "google.gemma-3-27b-it",
+        "BEDROCK_MAX_TOKENS": "256",
+        "BEDROCK_TEMPERATURE": "0.9",
         "OPENAI_MODEL_NAME": "gpt-4o-mini",
         "OPENAI_MAX_TOKENS": "256",
         "OPENAI_TEMPERATURE": "0.9",

@@ -13,11 +13,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from .config import prepare_env, patch_sqlite_url, PATHS
+from .config import prepare_env, patch_sqlite_url, edit_targets_revision, PATHS
 
 # ── 1) 既存 app を import する前の下準備 ──────────────────────────────────────
 prepare_env()
 patch_sqlite_url()
+_EDIT_TARGETS_REVISION = edit_targets_revision()
 
 # patch 後に import（engine が SQLite で構築される）。
 from app.main import app as app          # noqa: E402  既存の FastAPI インスタンス
@@ -41,6 +42,11 @@ def _handson_user() -> SimpleNamespace:
 
 
 app.dependency_overrides[get_current_active_user] = _handson_user
+
+
+@app.get("/handson/runtime", include_in_schema=False)
+def runtime_revision() -> dict[str, str]:
+    return {"edit_targets_revision": _EDIT_TARGETS_REVISION}
 
 
 # ── 3) Web UI 配信 ──────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ from langchain.document_loaders import WebBaseLoader
 
 from .llm_models import *
 from .llm_prompt_templates import *
-from .llm_db_chain import create_db_chain
+from .llm_db_chain import run_sql_chain
 from .llm_shell_chain import run_pal_chain_native
 from .guardrails import *
 from .settings import settings
@@ -164,7 +164,7 @@ def p2sql_injection_lv1(question: str) -> str:
             table_info="users, chats, memberships, messages, user_settings",
             question=question
         )
-        answer = create_db_chain().run(prompt)
+        answer = run_sql_chain(prompt)
         return ','.join(answer) if isinstance(answer, list) else str(answer)
     except Exception as e:
         return f"Error in ask_question_db: {', '.join(map(str, e.args))}"
@@ -178,7 +178,7 @@ def p2sql_injection_lv2(question: str) -> str:
             table_info="users, chats, memberships, messages, user_settings",
             question=question
         )
-        answer = create_db_chain().run(prompt)
+        answer = run_sql_chain(prompt)
         return ','.join(answer) if isinstance(answer, list) else str(answer)
     except Exception as e:
         return f"Error in ask_question_db: {', '.join(map(str, e.args))}"
@@ -192,7 +192,7 @@ def p2sql_injection_lv3(question: str) -> str:
             table_info="users, chats, memberships, messages, user_settings",
             question=question
         )
-        answer = create_db_chain().run(prompt)
+        answer = run_sql_chain(prompt)
         return ','.join(answer) if isinstance(answer, list) else str(answer)
     except Exception as e:
         return f"Error in ask_question_db: {', '.join(map(str, e.args))}"
@@ -207,7 +207,7 @@ def p2sql_injection_lv4(question: str) -> str:
             question=question,
             secure_tag=uuid.uuid4()
         )
-        answer = create_db_chain().run(prompt)
+        answer = run_sql_chain(prompt)
         return ','.join(answer) if isinstance(answer, list) else str(answer)
     except Exception as e:
         return f"Error in ask_question_db: {', '.join(map(str, e.args))}"
@@ -233,7 +233,7 @@ def p2sql_injection_lv5(question: str) -> str:
                 table_info="users, chats, memberships, messages, user_settings",
                 question=question
             )
-            answer = create_db_chain().run(prompt)
+            answer = run_sql_chain(prompt)
 
             # LLM-as-a-Judge for Output.
             judge_prompt = PromptTemplate(

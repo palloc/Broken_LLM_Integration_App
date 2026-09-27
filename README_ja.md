@@ -104,6 +104,8 @@ Azure OpenAI・LM Studio・ローカルプロキシなど OpenAI 互換の API �
 デフォルトでは OpenAI モデルが使用されます。  
 Ollama 上で動作する LLM を使用する場合は、`LLM_PROVIDER=ollama` を設定し、`OLLAMA_BASE_URL` と `OLLAMA_MODEL_NAME` に Ollama サーバーの URL とモデル名を設定してください。  
 
+SQL・PAL 演習は、モデルが Markdown コードブロックで返す SQL/Python に対応しています。SQL 応答には実行した `SQLQuery` と `SQLResult` を含め、プロンプト指定の拒否応答 `REFUSE` は SQL として実行しません。PAL の import は生成関数内でも参照できます。これらは互換性の修正であり、実行のサンドボックス化や意図的な脆弱性の除去ではありません。Bedrock Gemma のノートブック検証結果は[コース README](course/README.md)を参照してください。
+
 Ollama は Broken Chatbot のコンテナ内では動作しないため、`OLLAMA_BASE_URL` には Broken Chatbot コンテナからアクセス可能な URL を設定してください（セキュリティに十分注意してください）。
 
 ### 補足: DeepKeep の使用

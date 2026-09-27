@@ -12,8 +12,6 @@ INPUT_BLACKLIST = [
 
 # For output check (DB information leak, system critical information, etc.)
 OUTPUT_BLACKLIST = [
-    # Ex: other user's name.
-    r"(Carol|Charlie|Dave|Bob)",
     # Ex: content of /etc/passwd.
     r"(root\:x|/root\:/bin)",
     r"API_KEY",

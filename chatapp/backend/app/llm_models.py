@@ -25,6 +25,19 @@ def create_chat_openai_model():
             verbose=settings.OLLAMA_VERBOSE
         )
     elif provider == "bedrock":
+        if settings.BEDROCK_API_KEY:
+            return ChatOpenAI(
+                openai_api_key=settings.BEDROCK_API_KEY,
+                openai_api_base=(
+                    settings.BEDROCK_BASE_URL
+                    or "https://bedrock-mantle.us-east-2.api.aws/v1"
+                ),
+                model_name=settings.BEDROCK_MODEL_NAME or "google.gemma-3-4b-it",
+                max_tokens=settings.BEDROCK_MAX_TOKENS,
+                temperature=settings.BEDROCK_TEMPERATURE,
+                verbose=settings.BEDROCK_VERBOSE,
+            )
+
         bedrock_kwargs = dict(
             model=settings.BEDROCK_MODEL_ID,
             max_tokens=settings.BEDROCK_MAX_TOKENS,

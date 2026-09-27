@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     # LLM provider selection.
     LLM_PROVIDER: str = "openai"
+    SQL_CHAIN_VERBOSE: bool = True
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = ""
     OPENAI_MODEL_NAME: str = ""
@@ -33,7 +34,12 @@ class Settings(BaseSettings):
     OLLAMA_MODEL_NAME: str = ""
     OLLAMA_VERBOSE: bool = False
 
-    # Amazon Bedrock (IAM auth).
+    # Amazon Bedrock Mantle (OpenAI-compatible Bearer auth).
+    BEDROCK_API_KEY: str = ""
+    BEDROCK_BASE_URL: str = "https://bedrock-mantle.us-east-2.api.aws/v1"
+    BEDROCK_MODEL_NAME: str = "google.gemma-3-4b-it"
+
+    # Amazon Bedrock Converse (IAM auth).
     BEDROCK_REGION_NAME: str = ""
     BEDROCK_MODEL_ID: str = ""
     BEDROCK_AWS_ACCESS_KEY_ID: str = ""

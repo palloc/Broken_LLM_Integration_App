@@ -29,7 +29,7 @@ Google Colab / JupyterHub / ローカル Jupyter のいずれでも、**Docker �
 ### Google Colab（推奨・最優先サポート）
 1. 対象ノートブック（例: `notebooks/10_prompt_leaking.ipynb`）を Colab で開く。
 2. API キーを設定（どちらか）:
-   - Colab の「シークレット」に `OPENAI_API_KEY` を登録（鍵アイコン）、または
+  - Colab の「シークレット」に `BEDROCK_API_KEY` を登録（鍵アイコン）、または
    - `student_workspace/.env` を作成して記載（下記「`.env` で設定する」を参照）。
 3. セルを上から順に実行。`launcher.show()` でチャット UI が iframe 表示されます。
 
@@ -38,7 +38,7 @@ Google Colab / JupyterHub / ローカル Jupyter のいずれでも、**Docker �
 cd Broken_LLM_Integration_App
 pip install -r course/requirements.txt
 pip install jupyterlab "lark==1.1.9"   # ローカル実行用（Colab には不要）
-cp course/.env.example student_workspace/.env   # OPENAI_API_KEY を編集
+cp course/.env.example student_workspace/.env   # BEDROCK_API_KEY を編集
 jupyter lab   # student_workspace/notebooks/ を開いて上から実行
 ```
 `launcher.show()` は `http://localhost:8000/` を案内します。
@@ -64,11 +64,16 @@ jupyter lab   # student_workspace/notebooks/ を開いて上から実行
 cp course/.env.example student_workspace/.env
 ```
 
-`student_workspace/.env` の例:
+`student_workspace/.env` の例（Bedrock Mantle / Gemma 3 4B IT）:
 ```bash
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-xxxxxxxx
-OPENAI_MODEL_NAME=gpt-4o-mini
+LLM_PROVIDER=bedrock
+BEDROCK_API_KEY=...
+BEDROCK_BASE_URL=https://bedrock-mantle.us-east-2.api.aws/v1
+BEDROCK_MODEL_NAME=google.gemma-3-4b-it
+# OpenAI を使う場合:
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=sk-xxxxxxxx
+# OPENAI_MODEL_NAME=gpt-4o-mini
 # Ollama を使う場合:
 # LLM_PROVIDER=ollama
 # OLLAMA_BASE_URL=http://localhost:11434
@@ -113,14 +118,16 @@ notebook (Colab/Jupyter)
 - `student_workspace/edit_targets/llm_prompt_templates.py` … 防御プロンプト（Lv.3）
 
 編集後に `launcher.sync_edit_targets()` を実行すると、実行中アプリへ同期され
-`uvicorn --reload` により変更が反映されます。各演習ノートブックには
+`uvicorn --reload` により変更が反映されます。既定の `reload=True` で起動したサーバーでは、
+読み込み済みの防御ファイルの版を確認してから同期が完了します（最大40秒）。
+`reload=False` の場合はファイルコピーのみ行うため、反映にはサーバーの再起動が必要です。各演習ノートブックには
 「現状表示」セルと「解答例（ファイル上書き）」セルがあります。
 
 ---
 
 ## 🔌 LLM プロバイダ
 
-OpenAI を主、Ollama を選択可（既存の `LLM_PROVIDER` 抽象を流用）。
+Bedrock Mantle（Gemma 3 27B IT）を既定にし、OpenAI と Ollama も選択できます。
 推奨は `student_workspace/.env` での設定です（上記「`.env` で API キーを設定する」を参照）。
 
 ノートブック内では `.env` を読み込んで自動解決します:
@@ -131,6 +138,7 @@ launcher.configure_llm()   # .env → 環境変数 → Colab シークレット 
 
 コードから明示的に指定することもできます:
 ```python
+launcher.use_bedrock(api_key, model="google.gemma-3-27b-it")           # Bedrock Mantle
 launcher.use_openai(api_key, model="gpt-4o-mini")                     # OpenAI
 launcher.use_ollama(base_url="http://host:11434", model="llama3.2")  # Ollama
 ```
@@ -148,7 +156,76 @@ launcher.use_ollama(base_url="http://host:11434", model="llama3.2")  # Ollama
 
 ## 🛠 トラブルシュート
 
-- **`OPENAI_API_KEY` エラー**: キー未設定。`student_workspace/.env` に記載するか、Colab シークレット／`getpass` で設定。
+- **`BEDROCK_API_KEY` エラー**: `LLM_PROVIDER=bedrock` のときのキー未設定。`student_workspace/.env` に記載するか、Colab シークレット／`getpass` で設定。
+- **`OPENAI_API_KEY` エラー**: `LLM_PROVIDER=openai` のときのキー未設定。`student_workspace/.env` に記載するか、Colab シークレット／`getpass` で設定。
 - **UI が表示されない**: 各ノートブックの `ask("...mode...", "...")` ヘルパで API 直接確認。
-- **編集が反映されない**: `launcher.sync_edit_targets()` を実行してから数秒待つ。
+- **編集が反映されない**: `launcher.sync_edit_targets()` の完了を確認。タイムアウト時はサーバーログを確認し、再起動してください。
 - **ポート競合**: `launcher.start(port=8001)` のように変更。
+
+### SQL 演習の出力とログ
+
+コースでは `SQL_CHAIN_VERBOSE=false` を既定値とし、SQL チェーンの内部プロンプト全文の
+ログを抑制します。調査時は起動前に `SQL_CHAIN_VERBOSE=true` を設定できます。
+スタンドアロンアプリの既定値は従来どおり `true` です。
+
+SQL 教材の `ask()` は、実行した複数行の `SQLQuery:` と DB 由来の `SQLResult:` を保持し、
+モデルによる説明 `Answer:` は省きます。改ざん例は読み取り専用接続で `admin` の email を
+実行前後に確認します。生成文へのメールアドレスの出現だけでは成功と判定しません。
+`launcher.seed()` は改ざん箇所だけでなく演習 DB 全体を初期化します。
+
+### バックエンド更新後に古いエラーが残る場合
+
+生成済みの `PATHS.backend_dir` は初回だけコピーされます。カーネル再起動や
+`sync_edit_targets()` だけでは、`llm_db_chain.py` などの更新は反映されません。
+
+1. 起動中のサーバーを `launcher.stop(proc)` で停止します。
+2. 同じカーネルで次を実行し、生成済みバックエンドだけを退避します。
+
+```python
+from datetime import datetime
+from broken_handson.config import PATHS
+
+backend = PATHS.backend_dir
+if backend.exists():
+  backup = backend.with_name("chatapp_backend.backup-" + datetime.now().strftime("%Y%m%d%H%M%S%f"))
+  backend.rename(backup)
+```
+
+3. `pip install -r course/requirements.txt` で依存関係を更新し、カーネルを再起動します。
+4. ノートブックを先頭から実行します。バックエンドが最新ソースから再生成されます。
+
+この退避では `edit_targets/`・SQLite・リセット用 baseline は保持されます。
+`launcher.seed()` を実行すると SQLite の演習データは初期化されます。
+
+## 実行検証（2026-09-27）
+
+Python 3.12.9 の使い捨て Linux コンテナーで、受講生用ノートブックを各々新しい
+Jupyter カーネルから nbclient で実行しました。実際の Bedrock Mantle API
+（`us-east-2` / `google.gemma-3-4b-it`）を使用しています。
+
+| ノートブック | コードセル | 結果 |
+|---|---:|---|
+| `student_workspace/notebooks/10_prompt_leaking.ipynb` | 13 | 全セル成功 |
+| `student_workspace/notebooks/20_p2sql.ipynb` | 14 | 全セル成功 |
+| `student_workspace/notebooks/30_llm4shell.ipynb` | 14 | 全セル成功 |
+
+設定・SQLite seed・起動・healthcheck・Web UI の HTML 配信・実 API 応答・解答セルによる
+防御更新・更新直後の入力ブロック・reset・停止を確認しました。
+SQL/Python の Markdown 外枠の処理、PAL の import 名前空間、SQL の `REFUSE` 処理と
+実行結果表示、防御同期の競合を修正しています。
+
+バックエンド pytest は27件、コース pytest は4件成功しました。
+旧 Starlette の TestClient と互換性のある `httpx==0.27.2` を使用します。
+
+LLM の攻撃成功率は保証しません。今回も漏えいの拒否や指定と異なる SQL 生成がありました。
+SQL 演習では実際の `SQLQuery:` と `SQLResult:` を確認してください。
+Colab/TLJH 上の iframe 表示とブラウザー操作は今回の検証対象外です。
+
+### レビュー反映後の再検証
+
+SQL 表示の欠落修正・改ざんの実値判定・コースの冗長ログ抑制を反映後、同じ隔離環境で
+`20_p2sql.ipynb` を新規カーネルから再実行し、14コードセルすべて成功しました。
+バックエンド29件、コース23件の pytest も成功しています。両配布先の改ざんセルについて、
+対象利用者の更新・別利用者の更新・変更なし・実行前から変更済みを SQLite で検証しました。
+6冊の形式確認とソース・配布版の全セル一致も確認しています。他の2教材の今回の変更は
+本文のみで、API 接続による再実行は SQL 教材に限定しています。
